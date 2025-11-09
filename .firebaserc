@@ -1,11 +1,16 @@
 {
   "projects": {
-    "default": "wikiwands"
+    "default": "creative-2b9ba"
   },
   "targets": {
     "wikiwands": {
       "functions": {
         "serviceAccount": "wikiwands@appspot.gserviceaccount.com"
+      }
+    },
+    "creative-2b9ba": {
+      "functions": {
+        "serviceAccount": "creative-2b9ba@appspot.gserviceaccount.com"
       }
     }
   }

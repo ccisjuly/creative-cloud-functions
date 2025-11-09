@@ -207,7 +207,7 @@ export const getAvatars = functions.https.onCall(
           "❌ 未能从 HeyGen API 响应中解析出任何 Avatar 数据",
           "响应内容:",
           JSON.stringify(result).substring(0, 1000)
-          );
+        );
         throw new functions.https.HttpsError(
           "internal",
           "No avatars found in HeyGen API response"
@@ -215,24 +215,23 @@ export const getAvatars = functions.https.onCall(
       }
 
       // 规范化 avatar 数据，确保字段名一致
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const avatars: AvatarInfo[] = rawAvatars.map(
-        // eslint-disable-next-line max-len
+        // eslint-disable-next-line max-len, @typescript-eslint/no-explicit-any
         (avatar: any, index: number) => {
-        // 处理不同的字段名变体
-        const avatarId =
-          avatar.avatar_id ||
-          avatar.avatarId ||
-          avatar.id ||
-          avatar._id ||
-          `avatar_${Date.now()}_${Math.random()}`;
+          // 处理不同的字段名变体
+          const avatarId =
+            avatar.avatar_id ||
+            avatar.avatarId ||
+            avatar.id ||
+            avatar._id ||
+            `avatar_${Date.now()}_${Math.random()}`;
 
           // 记录完整的 avatar 对象以便调试（只记录前几个，避免日志过长）
           if (index < 3) {
-        functions.logger.info(
-          `📋 处理 Avatar (ID: ${avatarId}):`,
-          JSON.stringify(avatar, null, 2)
-        );
+            functions.logger.info(
+              `📋 处理 Avatar (ID: ${avatarId}):`,
+              JSON.stringify(avatar, null, 2)
+            );
           }
 
           // 记录所有可用的字段名（用于调试）
@@ -249,27 +248,27 @@ export const getAvatars = functions.https.onCall(
           // 根据实际 API 响应，使用 preview_image_url 和 preview_video_url
           // 优先使用图片 URL（用于列表显示），视频 URL 用于详情页播放
           const previewImageUrl =
-          avatar.preview_image_url ||
-          avatar.previewImageUrl ||
-          avatar.preview_url ||
-          avatar.previewUrl ||
-          avatar.image_url ||
-          avatar.imageUrl ||
-          avatar.image ||
-          null;
+            avatar.preview_image_url ||
+            avatar.previewImageUrl ||
+            avatar.preview_url ||
+            avatar.previewUrl ||
+            avatar.image_url ||
+            avatar.imageUrl ||
+            avatar.image ||
+            null;
 
           const previewVideoUrl =
-          avatar.preview_video_url ||
-          avatar.previewVideoUrl ||
-          avatar.video_url ||
-          avatar.videoUrl ||
-          null;
+            avatar.preview_video_url ||
+            avatar.previewVideoUrl ||
+            avatar.video_url ||
+            avatar.videoUrl ||
+            null;
 
           // 使用图片 URL 作为主要预览 URL（列表显示）
           const previewUrl = previewImageUrl || previewVideoUrl || null;
 
-        if (!previewUrl) {
-          functions.logger.warn(
+          if (!previewUrl) {
+            functions.logger.warn(
               `⚠️ Avatar ${avatarId} 没有找到预览 URL，所有字段: ${allKeys.join(", ")}`
             );
             // 记录前几个 avatar 的完整数据以便调试
@@ -284,29 +283,29 @@ export const getAvatars = functions.https.onCall(
               previewUrl;
             functions.logger.info(
               `✅ Avatar ${avatarId} 找到预览 URL: ${previewUrlPreview}`
-          );
-        }
+            );
+          }
 
-        return {
-          avatar_id: avatarId,
-          name: avatar.avatar_name || // HeyGen V2 API 实际使用的字段名
-            avatar.avatarName ||
-            avatar.name ||
-            avatar.title ||
-            avatar.display_name ||
-            avatar.displayName ||
-            null,
+          return {
+            avatar_id: avatarId,
+            name: avatar.avatar_name || // HeyGen V2 API 实际使用的字段名
+              avatar.avatarName ||
+              avatar.name ||
+              avatar.title ||
+              avatar.display_name ||
+              avatar.displayName ||
+              null,
             preview_url: previewImageUrl, // 图片 URL（用于列表显示）
             preview_video_url: previewVideoUrl, // 视频 URL（用于详情页播放）
-          gender: avatar.gender || null,
-          age: avatar.age || null,
-          style: avatar.style || avatar.category || null,
+            gender: avatar.gender || null,
+            age: avatar.age || null,
+            style: avatar.style || avatar.category || null,
             default_voice_id: avatar.default_voice_id || // Avatar 的默认声音 ID
               ((avatar as Record<string, unknown>).defaultVoiceId as
                 string | undefined) ||
               null,
-        };
-      });
+          };
+        });
 
       // 如果指定了 limit，只返回前 N 个
       const limit = data.limit;
