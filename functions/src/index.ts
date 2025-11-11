@@ -23,6 +23,7 @@ import {uploadProductImage} from "./uploadProductImage.js";
 import {deleteProduct} from "./deleteProduct.js";
 import {processApplePay} from "./processApplePay.js";
 import {submitFeedback} from "./submitFeedback.js";
+import {getAppConfig} from "./getConfig.js";
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -53,4 +54,5 @@ export {
   deleteProduct,
   processApplePay,
   submitFeedback,
+  getAppConfig,
 };

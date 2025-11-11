@@ -1,6 +1,11 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
-import {CreditsDoc, COLLECTIONS, CREDIT_CONSTANTS} from "./types.js";
+import {
+  CreditsDoc,
+  COLLECTIONS,
+  CREDIT_CONSTANTS,
+  PURCHASE_CREDIT_MAP,
+} from "./types.js";
 
 // 确保 Firebase Admin 已初始化
 if (admin.apps.length === 0) {
@@ -37,13 +42,15 @@ async function getOrCreateCreditsDoc(
 }
 
 /**
- * 重置用户的 gift_credit 为 10 点
+ * 增加用户的 gift_credit（而不是重置）
  * 使用 transaction 防止并发问题
  * @param {string} uid 用户 ID
- * @param {string} reason 发放原因（可选，如 "monthly_reset", "entitlement_activated"）
+ * @param {number} amount 增加的点数，默认使用 WEEKLY_GIFT_CREDIT
+ * @param {string} reason 发放原因（可选，如 "weekly_reset", "entitlement_activated"）
  */
-export async function resetGiftCredit(
+export async function addGiftCredit(
   uid: string,
+  amount: number = CREDIT_CONSTANTS.WEEKLY_GIFT_CREDIT,
   reason?: string
 ): Promise<void> {
   const creditsRef = db.doc(`${COLLECTIONS.CREDITS}/${uid}`);
@@ -51,7 +58,6 @@ export async function resetGiftCredit(
   await db.runTransaction(async (transaction) => {
     const creditsDoc = await transaction.get(creditsRef);
     const now = admin.firestore.FieldValue.serverTimestamp();
-    const amount = CREDIT_CONSTANTS.MONTHLY_GIFT_CREDIT;
 
     if (!creditsDoc.exists) {
       // 如果文档不存在，创建新文档
@@ -63,9 +69,11 @@ export async function resetGiftCredit(
       };
       transaction.set(creditsRef, initialCredits);
     } else {
-      // 更新现有文档
+      // 更新现有文档，增加 gift_credit
+      const currentData = creditsDoc.data() as CreditsDoc;
+      const currentGift = currentData.gift_credit || 0;
       transaction.update(creditsRef, {
-        gift_credit: amount,
+        gift_credit: currentGift + amount,
         last_gift_reset: now,
         updatedAt: now,
       });
@@ -99,14 +107,39 @@ export async function resetGiftCredit(
   });
 
   functions.logger.info(
-    `✅ 已重置用户 ${uid} 的 gift_credit 为 ` +
-    `${CREDIT_CONSTANTS.MONTHLY_GIFT_CREDIT} 点`
+    `✅ 已为用户 ${uid} 增加 ${amount} 点 gift_credit`
   );
+}
+
+/**
+ * 重置用户的 gift_credit（保留用于向后兼容，但实际调用 addGiftCredit）
+ * @deprecated 使用 addGiftCredit 代替
+ * @param {string} uid 用户 ID
+ * @param {string} reason 发放原因（可选）
+ */
+export async function resetGiftCredit(
+  uid: string,
+  reason?: string
+): Promise<void> {
+  // 向后兼容：调用 addGiftCredit，但先重置为0再增加
+  const creditsRef = db.doc(`${COLLECTIONS.CREDITS}/${uid}`);
+  await db.runTransaction(async (transaction) => {
+    const creditsDoc = await transaction.get(creditsRef);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    if (creditsDoc.exists) {
+      transaction.update(creditsRef, {
+        gift_credit: 0,
+        updatedAt: now,
+      });
+    }
+  });
+  await addGiftCredit(uid, CREDIT_CONSTANTS.WEEKLY_GIFT_CREDIT, reason);
 }
 
 /**
  * 清空用户的 gift_credit（设置为 0）
  * 使用 transaction 防止并发问题
+ * 注意：只清除 gift_credit，paid_credit 保留不变
  * @param {string} uid 用户 ID
  */
 export async function clearGiftCredit(uid: string): Promise<void> {
@@ -116,7 +149,7 @@ export async function clearGiftCredit(uid: string): Promise<void> {
     const creditsDoc = await transaction.get(creditsRef);
 
     if (!creditsDoc.exists) {
-      // 如果文档不存在，创建新文档（gift_credit 为 0）
+      // 如果文档不存在，创建新文档（gift_credit 为 0，paid_credit 为 0）
       const now = admin.firestore.FieldValue.serverTimestamp();
       const initialCredits: CreditsDoc = {
         gift_credit: 0,
@@ -125,32 +158,61 @@ export async function clearGiftCredit(uid: string): Promise<void> {
       };
       transaction.set(creditsRef, initialCredits);
     } else {
-      // 更新现有文档，清空 gift_credit
+      // 更新现有文档，只清空 gift_credit，保留 paid_credit
       const now = admin.firestore.FieldValue.serverTimestamp();
       transaction.update(creditsRef, {
         gift_credit: 0,
         updatedAt: now,
+        // 注意：不更新 paid_credit，保留用户已购买的付费点数
       });
     }
   });
 
-  functions.logger.info(`✅ 已清空用户 ${uid} 的 gift_credit`);
+  functions.logger.info(
+    `✅ 已清空用户 ${uid} 的 gift_credit（paid_credit 保留不变）`
+  );
+}
+
+/**
+ * 根据产品ID获取应增加的点数
+ * @param {string} productId 产品 ID
+ * @return {number} 应增加的点数
+ */
+export function getCreditsByProductId(productId: string): number {
+  return PURCHASE_CREDIT_MAP[productId] || 0;
 }
 
 /**
  * 增加用户的 paid_credit
  * 使用 transaction 防止并发问题
  * @param {string} uid 用户 ID
- * @param {number} amount 增加的点数，默认 10
- * @param {string} productId 产品 ID（可选，用于记录购买记录）
+ * @param {number} amount 增加的点数，如果未提供则根据 productId 自动获取
+ * @param {string} productId 产品 ID（可选，用于记录购买记录和自动获取点数）
  * @param {string} purchaseId 购买 ID（可选，用于记录购买记录）
  */
 export async function addPaidCredit(
   uid: string,
-  amount: number = CREDIT_CONSTANTS.NON_SUBSCRIPTION_PURCHASE_CREDIT,
+  amount?: number,
   productId?: string,
   purchaseId?: string
 ): Promise<void> {
+  // 如果未提供 amount，根据 productId 自动获取
+  let creditAmount = amount;
+  if (creditAmount === undefined) {
+    if (productId) {
+      creditAmount = getCreditsByProductId(productId);
+      if (creditAmount === 0) {
+        functions.logger.warn(
+          `⚠️ 未知的产品ID: ${productId}，使用默认值 0`
+        );
+      }
+    } else {
+      creditAmount = 0;
+      functions.logger.warn(
+        "⚠️ 未提供 amount 和 productId，使用默认值 0"
+      );
+    }
+  }
   const creditsRef = db.doc(`${COLLECTIONS.CREDITS}/${uid}`);
 
   await db.runTransaction(async (transaction) => {
@@ -161,14 +223,14 @@ export async function addPaidCredit(
       // 如果文档不存在，创建新文档
       const initialCredits: CreditsDoc = {
         gift_credit: 0,
-        paid_credit: amount,
+        paid_credit: creditAmount,
         updatedAt: now,
       };
       transaction.set(creditsRef, initialCredits);
     } else {
       // 更新现有文档
       const currentData = creditsDoc.data() as CreditsDoc;
-      const newPaidCredit = (currentData.paid_credit || 0) + amount;
+      const newPaidCredit = (currentData.paid_credit || 0) + creditAmount;
       transaction.update(creditsRef, {
         paid_credit: newPaidCredit,
         updatedAt: now,
@@ -191,8 +253,8 @@ export async function addPaidCredit(
     } = {
       uid,
       type: "purchase", // 购买类型
-      amount,
-      added_paid: amount,
+      amount: creditAmount,
+      added_paid: creditAmount,
       created_at: now,
     };
 
@@ -206,7 +268,7 @@ export async function addPaidCredit(
     transaction.set(transactionRef, transactionData);
   });
 
-  functions.logger.info(`✅ 已为用户 ${uid} 增加 ${amount} 点 paid_credit`);
+  functions.logger.info(`✅ 已为用户 ${uid} 增加 ${creditAmount} 点 paid_credit`);
 }
 
 /**

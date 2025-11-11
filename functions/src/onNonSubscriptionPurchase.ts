@@ -1,5 +1,5 @@
 import * as functions from "firebase-functions/v1";
-import {addPaidCredit} from "./credits.js";
+import {addPaidCredit, getCreditsByProductId} from "./credits.js";
 import {COLLECTIONS} from "./types.js";
 
 /**
@@ -70,11 +70,23 @@ export const onNonSubscriptionPurchase = functions.firestore
           {purchases: newPurchases}
         );
 
-        // 为每个新购买增加点数（通常每个购买增加 10 点）
+        // 为每个新购买增加点数（根据产品ID自动获取点数）
         for (const purchase of newPurchases) {
+          const creditsAmount = getCreditsByProductId(purchase.productId);
+          if (creditsAmount === 0) {
+            functions.logger.warn(
+              `⚠️ 未知的产品ID: ${purchase.productId}，跳过增加点数`
+            );
+            continue;
+          }
+
+          functions.logger.info(
+            `💰 产品 ${purchase.productId} 对应 ${creditsAmount} 点`
+          );
+
           await addPaidCredit(
             uid,
-            undefined, // 使用默认值
+            creditsAmount, // 根据产品ID获取的点数
             purchase.productId,
             purchase.purchaseId
           );

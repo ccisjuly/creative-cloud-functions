@@ -35,7 +35,17 @@ export const RC_EVENT_FIELD = {
 } as const;
 
 export const CREDIT_CONSTANTS = {
-  MONTHLY_GIFT_CREDIT: 10,
-  NON_SUBSCRIPTION_PURCHASE_CREDIT: 10,
-  USE_CREDITS_AMOUNT: 5, // 每次使用点数的固定数量
+  ENTITLEMENT_ACTIVATION_CREDIT: 2, // 会员激活时赠送的点数
+  WEEKLY_GIFT_CREDIT: 2, // 会员每7天赠送的点数
+  USE_CREDITS_AMOUNT: 5, // 每次使用点数的固定数量（测试用）
+  VIDEO_GENERATION_CREDITS: 1, // 视频生成所需点数
+  VIDEO_MAX_DURATION_SECONDS: 15, // 视频最大时长（秒）
+  VIDEO_MAX_WORD_COUNT: 35, // 视频最大字数（15秒视频约35个词）
+} as const;
+
+// 购买点数产品ID映射
+export const PURCHASE_CREDIT_MAP: Record<string, number> = {
+  "com.sawell.creative.credit.single": 1,
+  "com.sawell.creative.credit.10pack": 6,
+  "com.sawell.creative.credit.30pack": 13,
 } as const;

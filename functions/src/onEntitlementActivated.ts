@@ -1,18 +1,18 @@
 import * as functions from "firebase-functions/v1";
-import {resetGiftCredit, clearGiftCredit} from "./credits.js";
-import {COLLECTIONS} from "./types.js";
+import {addGiftCredit, clearGiftCredit} from "./credits.js";
+import {COLLECTIONS, CREDIT_CONSTANTS} from "./types.js";
 
 /**
  * 监听 users/{uid} 文档的更新事件
  * RevenueCat Firebase Extension 会将用户数据（包括 entitlements）写入到此文档
- * 当检测到权益激活时，重置用户的 gift_credit 为 10 点
- * 当检测到权益消失时，清空用户的 gift_credit 为 0 点
+ * 当检测到权益激活时，增加用户的 gift_credit（2点）
+ * 当检测到权益过期/消失时，清空用户的 gift_credit（保留 paid_credit）
  *
  * 注意：
  * - 这个函数监听的是 RevenueCat Extension 写入到 users/{uid} 的权益数据
  * - 会在权益状态变化时触发，包括激活和过期
- * - 权益激活时：重置 gift_credit 为 10 点
- * - 权益消失时：清空 gift_credit 为 0 点
+ * - 权益激活时：增加 gift_credit 2点
+ * - 权益过期/消失时：清空 gift_credit 为 0点（paid_credit 保留不变）
  * - 权益激活判断：检查 expires_date 是否在未来
  */
 export const onEntitlementActivated = functions.firestore
@@ -174,15 +174,20 @@ export const onEntitlementActivated = functions.firestore
         }
       }
 
-      // 如果有新激活的权益，重置 gift_credit
+      // 如果有新激活的权益，增加 gift_credit
       if (hasNewlyActivated) {
         functions.logger.info(
           `🎁 检测到 ${activatedEntitlements.length} 个权益激活，` +
-          `重置用户 ${uid} 的 gift_credit 为 10 点`,
+          `为用户 ${uid} 增加 ` +
+          `${CREDIT_CONSTANTS.ENTITLEMENT_ACTIVATION_CREDIT} 点 gift_credit`,
           {entitlements: activatedEntitlements}
         );
-        await resetGiftCredit(uid, "entitlement_activated");
-        functions.logger.info(`✅ 已重置用户 ${uid} 的 gift_credit`);
+        await addGiftCredit(
+          uid,
+          CREDIT_CONSTANTS.ENTITLEMENT_ACTIVATION_CREDIT,
+          "entitlement_activated"
+        );
+        functions.logger.info(`✅ 已为用户 ${uid} 增加 gift_credit`);
       }
 
       // 如果有权益消失，清空 gift_credit

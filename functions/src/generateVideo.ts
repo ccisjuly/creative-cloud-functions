@@ -2,6 +2,8 @@ import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import {getConfig} from "./config.js";
 import {useCredits as useCreditsInternal} from "./credits.js";
+import {CREDIT_CONSTANTS} from "./types.js";
+import {countWords} from "./utils.js";
 
 // 确保 Firebase Admin 已初始化
 if (admin.apps.length === 0) {
@@ -9,9 +11,6 @@ if (admin.apps.length === 0) {
 }
 
 const db = admin.firestore();
-
-// 视频生成所需点数
-const VIDEO_GENERATION_CREDITS = 5;
 
 /**
  * HeyGen API 视频生成请求参数
@@ -65,12 +64,12 @@ export const generateVideo = functions.https.onCall(
     try {
       await useCreditsInternal(
         uid,
-        VIDEO_GENERATION_CREDITS,
+        CREDIT_CONSTANTS.VIDEO_GENERATION_CREDITS,
         "video_generation",
         tempVideoId
       );
       functions.logger.info(
-        `✅ 用户 ${uid} 已扣除 ${VIDEO_GENERATION_CREDITS} 点用于生成视频`
+        `✅ 用户 ${uid} 已扣除 ${CREDIT_CONSTANTS.VIDEO_GENERATION_CREDITS} 点用于生成视频`
       );
     } catch (error: unknown) {
       // 如果点数不足，返回明确的错误信息
@@ -82,7 +81,7 @@ export const generateVideo = functions.https.onCall(
           );
           throw new functions.https.HttpsError(
             "failed-precondition",
-            `点数不足。生成视频需要 ${VIDEO_GENERATION_CREDITS} 点，请先购买点数。`
+            `点数不足。生成视频需要 ${CREDIT_CONSTANTS.VIDEO_GENERATION_CREDITS} 点，请先购买点数。`
           );
         } else if (code === "not-found") {
           throw new functions.https.HttpsError(
@@ -126,11 +125,14 @@ export const generateVideo = functions.https.onCall(
       );
     }
 
-    // 验证脚本长度（HeyGen 通常有长度限制）
-    if (data.script.length > 5000) {
+    // 验证脚本字数（根据15秒视频限制，约35个词）
+    // 假设平均语速为每分钟140-150词，15秒约为35-37.5词，限制为35词
+    const wordCount = countWords(data.script);
+    if (wordCount > CREDIT_CONSTANTS.VIDEO_MAX_WORD_COUNT) {
       throw new functions.https.HttpsError(
         "invalid-argument",
-        "script must be less than 5000 characters"
+        `Script must be less than ${CREDIT_CONSTANTS.VIDEO_MAX_WORD_COUNT} words for 15-second video limit. ` +
+        `Current word count: ${wordCount}`
       );
     }
 
@@ -224,6 +226,8 @@ export const generateVideo = functions.https.onCall(
           height: 1280, // 竖屏：高度 1280
         },
         video_inputs: [videoInput],
+        // 限制视频时长为15秒
+        duration: CREDIT_CONSTANTS.VIDEO_MAX_DURATION_SECONDS,
       };
 
       // 记录请求体以便调试
