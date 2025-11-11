@@ -21,6 +21,7 @@ import {getUserProducts} from "./getUserProducts.js";
 import {updateProduct} from "./updateProduct.js";
 import {uploadProductImage} from "./uploadProductImage.js";
 import {deleteProduct} from "./deleteProduct.js";
+import {processApplePay} from "./processApplePay.js";
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -49,4 +50,5 @@ export {
   updateProduct,
   uploadProductImage,
   deleteProduct,
+  processApplePay,
 };
