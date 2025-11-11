@@ -129,10 +129,11 @@ export const generateVideo = functions.https.onCall(
     // 假设平均语速为每分钟140-150词，15秒约为35-37.5词，限制为35词
     const wordCount = countWords(data.script);
     if (wordCount > CREDIT_CONSTANTS.VIDEO_MAX_WORD_COUNT) {
+      const maxWords = CREDIT_CONSTANTS.VIDEO_MAX_WORD_COUNT;
       throw new functions.https.HttpsError(
         "invalid-argument",
-        `Script must be less than ${CREDIT_CONSTANTS.VIDEO_MAX_WORD_COUNT} words for 15-second video limit. ` +
-        `Current word count: ${wordCount}`
+        `Script must be less than ${maxWords} words for 15-second ` +
+        `video limit. Current word count: ${wordCount}`
       );
     }
 
