@@ -3,12 +3,12 @@ import {addPaidCredit} from "./credits.js";
 
 /**
  * Callable 函数：处理 Apple Pay 支付
- * 
+ *
  * 注意：这是一个基础实现。真实的支付处理需要：
  * 1. 集成支付处理服务（如 Stripe、Square 等）
  * 2. 验证支付令牌
  * 3. 处理实际的资金转移
- * 
+ *
  * 当前实现仅用于测试，将支付金额转换为点数
  */
 export const processApplePay = functions.https.onCall(async (data, context) => {
