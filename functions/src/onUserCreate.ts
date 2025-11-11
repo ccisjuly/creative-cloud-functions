@@ -8,10 +8,24 @@ export const onUserCreate = functions
     const {uid, email, displayName, photoURL} = user;
     const now = admin.firestore.FieldValue.serverTimestamp();
 
+    // 记录用户创建信息（特别是邮箱）
+    functions.logger.info(
+      `✅ New user created: UID=${uid}, Email=${email || "none"}, ` +
+      `DisplayName=${displayName || "none"}`
+    );
+
+    // 确保邮箱被保存（对于邮箱注册的用户，email 应该存在）
+    const userEmail = email || "";
+    if (!userEmail) {
+      functions.logger.warn(
+        `⚠️ User ${uid} created without email address`
+      );
+    }
+
     await db.doc(`${COLLECTIONS.USERS}/${uid}`).set({
       profile: {
         displayName: displayName || "",
-        email: email || "",
+        email: userEmail, // 保存邮箱（即使是空字符串）
         photoURL: photoURL || "",
       },
       roles: {super_admin: false},
@@ -19,6 +33,10 @@ export const onUserCreate = functions
       // entitlements, subscriptions, non_subscriptions 等字段
       // 由 RevenueCat Extension 自动管理
     }, {merge: true});
+
+    functions.logger.info(
+      `✅ User profile saved to Firestore: UID=${uid}, Email=${userEmail}`
+    );
 
     // 初始化点数文档
     await db.doc(`${COLLECTIONS.CREDITS}/${uid}`).set({
