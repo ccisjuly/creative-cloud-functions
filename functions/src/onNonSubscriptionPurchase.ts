@@ -7,7 +7,9 @@ import {COLLECTIONS} from "./types.js";
  * RevenueCat Firebase Extension 会将用户数据（包括 non_subscriptions）写入到此文档
  * 当检测到新的非订阅购买时，增加用户的 paid_credit
  */
-export const onNonSubscriptionPurchase = functions.firestore
+export const onNonSubscriptionPurchase = functions
+  .region("us-west1")
+  .firestore
   .document(`${COLLECTIONS.USERS}/{uid}`)
   .onUpdate(async (change, context) => {
     const uid = context.params.uid;

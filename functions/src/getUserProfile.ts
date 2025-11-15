@@ -16,6 +16,7 @@ const db = admin.firestore();
  * 数据结构基于 RevenueCat 的 customer info 格式
  */
 export const getUserProfile = functions
+  .region("us-west1")
   .https.onCall(async (data, context) => {
     // 1. 验证用户是否已登录
     if (!context.auth) {
@@ -28,10 +29,15 @@ export const getUserProfile = functions
 
     try {
       // 2. 并发获取用户文档和点数信息（性能优化）
+      const startTime = Date.now();
       const [userSnapshot, credits] = await Promise.all([
         db.doc(`users/${uid}`).get(),
         getCredits(uid),
       ]);
+      const elapsedTime = Date.now() - startTime;
+      functions.logger.info(
+        `⏱️ getUserProfile 执行时间: ${elapsedTime}ms (用户: ${uid})`
+      );
 
       if (!userSnapshot.exists) {
         // 如果用户文档不存在，返回基本结构

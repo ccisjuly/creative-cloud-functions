@@ -15,7 +15,9 @@ import {COLLECTIONS, CREDIT_CONSTANTS} from "./types.js";
  * - 权益过期/消失时：清空 gift_credit 为 0点（paid_credit 保留不变）
  * - 权益激活判断：检查 expires_date 是否在未来
  */
-export const onEntitlementActivated = functions.firestore
+export const onEntitlementActivated = functions
+  .region("us-west1")
+  .firestore
   .document(`${COLLECTIONS.USERS}/{uid}`)
   .onUpdate(async (change, context) => {
     const uid = context.params.uid;

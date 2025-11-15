@@ -18,7 +18,9 @@ const db = admin.firestore();
  * - 用户停止订阅后，不再发放点数（因为 hasActiveEntitlement 为 false）
  * - paid_credit 不受影响，始终保留
  */
-export const refreshMonthlyCredits = functions.pubsub
+export const refreshMonthlyCredits = functions
+  .region("us-west1")
+  .pubsub
   .schedule("0 0 * * *") // 每天 00:00 UTC 运行
   .timeZone("UTC")
   .onRun(async () => {

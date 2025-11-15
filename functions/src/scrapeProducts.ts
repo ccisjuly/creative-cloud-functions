@@ -4,62 +4,64 @@ import * as functions from "firebase-functions/v1";
  * 抓取商品信息
  * 支持 Shopify 平台
  */
-export const scrapeProducts = functions.https.onCall(
-  async (data, context) => {
+export const scrapeProducts = functions
+  .region("us-west1")
+  .https.onCall(
+    async (data, context) => {
     // 验证用户身份
-    if (!context.auth) {
-      throw new functions.https.HttpsError(
-        "unauthenticated",
-        "User must be authenticated"
-      );
-    }
-
-    const {url, platform} = data;
-
-    if (!url || typeof url !== "string") {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "URL is required"
-      );
-    }
-
-    if (!platform || typeof platform !== "string") {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Platform is required"
-      );
-    }
-
-    try {
-      let products: Array<Record<string, unknown>> = [];
-
-      if (platform === "shopify") {
-        products = await scrapeShopifyProduct(url);
-      } else {
+      if (!context.auth) {
         throw new functions.https.HttpsError(
-          "invalid-argument",
-          `Unsupported platform: ${platform}`
+          "unauthenticated",
+          "User must be authenticated"
         );
       }
 
-      return {
-        success: true,
-        products: products,
-        message: `Successfully scraped ${products.length} product(s)`,
-      };
-    } catch (error: unknown) {
-      const errorMessage =
+      const {url, platform} = data;
+
+      if (!url || typeof url !== "string") {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "URL is required"
+        );
+      }
+
+      if (!platform || typeof platform !== "string") {
+        throw new functions.https.HttpsError(
+          "invalid-argument",
+          "Platform is required"
+        );
+      }
+
+      try {
+        let products: Array<Record<string, unknown>> = [];
+
+        if (platform === "shopify") {
+          products = await scrapeShopifyProduct(url);
+        } else {
+          throw new functions.https.HttpsError(
+            "invalid-argument",
+            `Unsupported platform: ${platform}`
+          );
+        }
+
+        return {
+          success: true,
+          products: products,
+          message: `Successfully scraped ${products.length} product(s)`,
+        };
+      } catch (error: unknown) {
+        const errorMessage =
         error instanceof Error ? error.message : String(error);
-      functions.logger.error(`❌ Error scraping products: ${errorMessage}`);
-      return {
-        success: false,
-        products: null,
-        error: errorMessage,
-        message: "Failed to scrape products",
-      };
+        functions.logger.error(`❌ Error scraping products: ${errorMessage}`);
+        return {
+          success: false,
+          products: null,
+          error: errorMessage,
+          message: "Failed to scrape products",
+        };
+      }
     }
-  }
-);
+  );
 
 /**
  * 抓取 Shopify 商品

@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import {COLLECTIONS} from "./types.js";
 
 export const onUserCreate = functions
+  .region("us-west1")
   .auth.user().onCreate(async (user) => {
     const db = admin.firestore();
     const {uid, email, displayName, photoURL} = user;
