@@ -27,12 +27,14 @@ export const getUserProfile = functions
     const uid = context.auth.uid;
 
     try {
-      // 2. 获取用户文档（包含 profile, roles, aliases, entitlements, subscriptions）
-      const userSnapshot = await db.doc(`users/${uid}`).get();
+      // 2. 并发获取用户文档和点数信息（性能优化）
+      const [userSnapshot, credits] = await Promise.all([
+        db.doc(`users/${uid}`).get(),
+        getCredits(uid),
+      ]);
 
       if (!userSnapshot.exists) {
         // 如果用户文档不存在，返回基本结构
-        const credits = await getCredits(uid);
         return {
           success: true,
           aliases: [uid],
@@ -60,9 +62,6 @@ export const getUserProfile = functions
       }
 
       const userData = userSnapshot.data() || {};
-
-      // 3. 获取点数信息
-      const credits = await getCredits(uid);
 
       // 4. 构建返回数据（匹配 RevenueCat customer info 格式）
       return {

@@ -63,104 +63,182 @@ export const getUserVideos = functions.https.onCall(
       }> = [];
 
       // 3. 获取配置（用于查询 processing 状态的视频）
-      let config;
+      let config: ReturnType<typeof getConfig> | undefined;
       try {
         config = getConfig();
       } catch (error) {
         functions.logger.warn("无法获取配置，跳过 API 查询");
+        config = undefined;
       }
 
-      // 4. 处理每个视频任务
+      // 4. 分离 processing 视频和其他视频，以便并发处理
+      const processingVideos: Array<{
+        doc: admin.firestore.QueryDocumentSnapshot;
+        videoId: string;
+        data: admin.firestore.DocumentData;
+      }> = [];
+
+      const otherVideos: Array<{
+        doc: admin.firestore.QueryDocumentSnapshot;
+        videoId: string;
+        data: admin.firestore.DocumentData;
+      }> = [];
+
       for (const doc of videoTasksSnapshot.docs) {
         const data = doc.data();
-        const videoId = doc.id;
         const status = data.status || "unknown";
 
-        let progress: number | null = null;
-        let videoUrl = data.video_url || null;
-        let errorCode = data.error_code || null;
-        let errorMessage = data.error_message || null;
-        let errorDetail = data.error_detail || null;
-
-        // 5. 如果状态是 processing 且有配置，查询 HeyGen API 获取最新状态
         if (status === "processing" && config) {
-          try {
-            const heygenApiUrl =
-              `${config.heygenApiBaseUrl}/v1/video_status.get?` +
-              `video_id=${videoId}`;
+          processingVideos.push({doc, videoId: doc.id, data});
+        } else {
+          otherVideos.push({doc, videoId: doc.id, data});
+        }
+      }
 
-            const response = await fetch(heygenApiUrl, {
-              method: "GET",
-              headers: {
-                "Content-Type": "application/json",
-                "X-Api-Key": config.heygenApiKey,
-              },
-            });
+      // 5. 并发查询所有 processing 视频的状态（性能优化）
+      const processingVideoUpdates = new Map<string, {
+        videoUrl: string | null;
+        status: string;
+        progress: number | null;
+        errorCode: string | null;
+        errorMessage: string | null;
+        errorDetail: string | null;
+      }>();
 
-            if (response.ok) {
-              const result = await response.json() as {
-                code?: number;
-                data?: {
-                  status?: string;
-                  video_url?: string;
-                  progress?: number;
-                  error?: {
-                    code?: string;
-                    message?: string;
-                    detail?: string;
+      if (processingVideos.length > 0) {
+        functions.logger.info(
+          `🔄 并发查询 ${processingVideos.length} 个 processing 视频的状态`
+        );
+
+        const statusPromises = processingVideos.map(
+          async ({doc, videoId, data: videoData}) => {
+            try {
+              if (!config) {
+                return null;
+              }
+
+              const heygenApiUrl =
+                `${config.heygenApiBaseUrl}/v1/video_status.get?` +
+                `video_id=${videoId}`;
+
+              // 添加超时控制（每个请求最多 3 秒）
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+              const response = await fetch(heygenApiUrl, {
+                method: "GET",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Api-Key": config.heygenApiKey,
+                },
+                signal: controller.signal,
+              });
+
+              clearTimeout(timeoutId);
+
+              if (response.ok) {
+                const result = await response.json() as {
+                  code?: number;
+                  data?: {
+                    status?: string;
+                    video_url?: string;
+                    progress?: number;
+                    error?: {
+                      code?: string;
+                      message?: string;
+                      detail?: string;
+                    };
                   };
                 };
-              };
 
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const dataObj: any = result.data || result;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const dataObj: any = result.data || result;
 
-              if (dataObj) {
-                // 更新状态
-                const latestStatus = dataObj.status || status;
-                videoUrl = dataObj.video_url || dataObj.url || videoUrl;
+                if (dataObj) {
+                  const latestStatus = dataObj.status || videoData.status;
+                  const videoUrl = dataObj.video_url ||
+                    dataObj.url ||
+                    videoData.video_url ||
+                    null;
+                  let progress: number | null = null;
+                  if (dataObj.progress !== undefined) {
+                    progress = typeof dataObj.progress === "number" ?
+                      dataObj.progress : null;
+                  }
 
-                // 提取进度（如果有）
-                if (dataObj.progress !== undefined) {
-                  progress = typeof dataObj.progress === "number" ?
-                    dataObj.progress : null;
+                  const errorCode = dataObj.error?.code ||
+                    videoData.error_code ||
+                    null;
+                  const errorMessage = dataObj.error?.message ||
+                    videoData.error_message ||
+                    null;
+                  const errorDetail = dataObj.error?.detail ||
+                    videoData.error_detail ||
+                    null;
+
+                  // 保存更新信息
+                  processingVideoUpdates.set(videoId, {
+                    videoUrl,
+                    status: latestStatus,
+                    progress,
+                    errorCode,
+                    errorMessage,
+                    errorDetail,
+                  });
+
+                  // 更新 Firestore（异步，不阻塞返回）
+                  doc.ref.update({
+                    status: latestStatus,
+                    video_url: videoUrl,
+                    progress: progress,
+                    error_code: errorCode,
+                    error_message: errorMessage,
+                    error_detail: errorDetail,
+                    updated_at: admin.firestore.FieldValue.serverTimestamp(),
+                  }).catch((err) => {
+                    functions.logger.warn(
+                      `更新视频 ${videoId} 状态失败:`,
+                      err
+                    );
+                  });
                 }
-
-                // 提取错误信息
-                if (dataObj.error) {
-                  errorCode = dataObj.error.code || null;
-                  errorMessage = dataObj.error.message || null;
-                  errorDetail = dataObj.error.detail || null;
-                }
-
-                // 更新 Firestore（异步，不阻塞返回）
-                doc.ref.update({
-                  status: latestStatus,
-                  video_url: videoUrl,
-                  progress: progress,
-                  error_code: errorCode,
-                  error_message: errorMessage,
-                  error_detail: errorDetail,
-                  updated_at: admin.firestore.FieldValue.serverTimestamp(),
-                }).catch((err) => {
-                  functions.logger.warn(
-                    `更新视频 ${videoId} 状态失败:`,
-                    err
-                  );
-                });
+              }
+            } catch (error) {
+              // 超时或错误，使用 Firestore 中的数据
+              if (error instanceof Error && error.name === "AbortError") {
+                functions.logger.warn(
+                  `⏱️ 查询视频 ${videoId} 超时（3秒），使用 Firestore 数据`
+                );
+              } else {
+                functions.logger.warn(
+                  `查询视频 ${videoId} 状态失败:`,
+                  error
+                );
               }
             }
-          } catch (error) {
-            // API 查询失败不影响返回结果
-            functions.logger.warn(
-              `查询视频 ${videoId} 状态失败:`,
-              error
-            );
+            return null;
           }
-        } else if (data.progress !== undefined) {
-          // 如果 Firestore 中已有进度信息
-          progress = typeof data.progress === "number" ? data.progress : null;
-        }
+        );
+
+        // 等待所有查询完成，但最多等待 5 秒
+        await Promise.race([
+          Promise.all(statusPromises),
+          new Promise((resolve) => setTimeout(resolve, 5000)),
+        ]);
+      }
+
+      // 6. 构建视频列表（保持与原来完全相同的数据结构）
+      for (const {videoId, data} of processingVideos) {
+        const update = processingVideoUpdates.get(videoId);
+        const status = update?.status || data.status || "unknown";
+        const videoUrl = update?.videoUrl ?? data.video_url ?? null;
+        const progress = update?.progress ??
+          (data.progress !== undefined ?
+            (typeof data.progress === "number" ? data.progress : null) :
+            null);
+        const errorCode = update?.errorCode ?? data.error_code ?? null;
+        const errorMessage = update?.errorMessage ?? data.error_message ?? null;
+        const errorDetail = update?.errorDetail ?? data.error_detail ?? null;
 
         videos.push({
           video_id: videoId,
@@ -181,7 +259,33 @@ export const getUserVideos = functions.https.onCall(
         });
       }
 
-      // 6. 按创建时间排序（降序）并限制数量
+      // 处理其他视频
+      for (const {videoId, data} of otherVideos) {
+        let progress: number | null = null;
+        if (data.progress !== undefined) {
+          progress = typeof data.progress === "number" ? data.progress : null;
+        }
+
+        videos.push({
+          video_id: videoId,
+          video_url: data.video_url || null,
+          status: data.status || "unknown",
+          progress: progress,
+          image_url: data.image_url || null,
+          script: data.script || null,
+          avatar_id: data.avatar_id || null,
+          voice_id: data.voice_id || null,
+          error_code: data.error_code || null,
+          error_message: data.error_message || null,
+          error_detail: data.error_detail || null,
+          created_at:
+            data.created_at?.toDate?.()?.toISOString() || null,
+          updated_at:
+            data.updated_at?.toDate?.()?.toISOString() || null,
+        });
+      }
+
+      // 7. 按创建时间排序（降序）并限制数量
       videos.sort((a, b) => {
         const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
         const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;

@@ -17,6 +17,14 @@ interface AvatarInfo {
 
 // HeyGenAvatarsResponse 接口已移除，使用动态类型检查
 
+// 内存缓存（性能优化）
+let avatarCache: {
+  data: AvatarInfo[];
+  timestamp: number;
+} | null = null;
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5 分钟缓存
+
 /**
  * Callable 函数：获取可用的 Avatar 列表
  *
@@ -53,7 +61,24 @@ export const getAvatars = functions.https.onCall(
     }
 
     try {
-      // 3. 调用 HeyGen API 获取 Avatar 列表
+      // 3. 检查缓存（性能优化）
+      if (avatarCache &&
+          Date.now() - avatarCache.timestamp < CACHE_DURATION) {
+        functions.logger.info("✅ 使用缓存的 Avatar 列表");
+        const limit = data.limit;
+        const finalAvatars = limit && limit > 0 ?
+          avatarCache.data.slice(0, limit) :
+          avatarCache.data;
+
+        return {
+          success: true,
+          avatars: finalAvatars,
+          count: finalAvatars.length,
+          total: avatarCache.data.length,
+        };
+      }
+
+      // 4. 调用 HeyGen API 获取 Avatar 列表
       // 根据 HeyGen API 文档：https://docs.heygen.com/reference/authentication
       // 使用 V2 API: /v2/avatars
       const heygenApiUrl = `${config.heygenApiBaseUrl}/v2/avatars`;
@@ -307,6 +332,12 @@ export const getAvatars = functions.https.onCall(
           };
         });
 
+      // 5. 更新缓存（性能优化）
+      avatarCache = {
+        data: avatars,
+        timestamp: Date.now(),
+      };
+
       // 如果指定了 limit，只返回前 N 个
       const limit = data.limit;
       const finalAvatars = limit && limit > 0 ?
@@ -315,7 +346,8 @@ export const getAvatars = functions.https.onCall(
 
       functions.logger.info(
         `✅ 成功获取并规范化 ${avatars.length} 个 Avatar` +
-        (limit ? `，返回前 ${limit} 个` : "")
+        (limit ? `，返回前 ${limit} 个` : "") +
+        "（已缓存）"
       );
 
       return {
